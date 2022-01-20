@@ -22,7 +22,6 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
     address private _marketplaceAddress;
     address private _loanAddress;
 
-    mapping(uint256 => string) public _tokenURIs;
     mapping(uint256 => mapping(address => uint256)) private _balances;
     mapping(uint256 => address[]) private _owners;
     mapping(address => mapping(address => bool)) private _operatorApprovals;
@@ -64,6 +63,7 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
         bool mutableMetada
     ) public returns (uint256) {
         require(to != address(0), "ERC1155: mint to the zero address");
+        require(amount > 0, "ERC1155: amount has to be larger than zero");
 
         _tokenIds.increment();
         uint256 tokenId = _tokenIds.current();

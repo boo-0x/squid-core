@@ -1,6 +1,6 @@
 const { expect, assert } = require("chai");
 
-describe.only("************ NFT ******************", () => {
+describe("************ NFT ******************", () => {
     let nft,
         nftContractAddress,
         contractOwner,
@@ -36,9 +36,9 @@ describe.only("************ NFT ******************", () => {
         royaltyValue = 1000; // 10%
 
         if (!nftContractAddress) {
-            // Deploy CoralNFT contract
+            // Deploy SqwidERC1155 contract
             console.log("\tdeploying NFT contract...");
-            const NFT = await reef.getContractFactory("CoralNFT", contractOwner);
+            const NFT = await reef.getContractFactory("SqwidERC1155", contractOwner);
             nft = await NFT.deploy(
                 "0x0000000000000000000000000000000000000000",
                 "0x0000000000000000000000000000000000000000"
@@ -47,38 +47,38 @@ describe.only("************ NFT ******************", () => {
             nftContractAddress = nft.address;
         } else {
             // Get deployed contract
-            const NFT = await reef.getContractFactory("CoralNFT", contractOwner);
+            const NFT = await reef.getContractFactory("SqwidERC1155", contractOwner);
             nft = await NFT.attach(nftContractAddress);
         }
         console.log(`\tNFT contact deployed ${nftContractAddress}`);
     });
 
-    it.only("Should get NFT contract data", async () => {
+    it("Should get NFT contract data", async () => {
         const interfaceIdErc2981 = "0x2a55205a";
         const supportsErc2981 = await nft.supportsInterface(interfaceIdErc2981);
 
         expect(supportsErc2981).to.equal(true);
     });
 
-    it.only("Should create tokens", async () => {
+    it("Should create tokens", async () => {
         // Create tokens
         console.log("\tcreating tokens...");
 
         const tx1 = await nft
             .connect(creator)
-            .createToken("https://fake-uri-1.com", 1, artistAddress, royaltyValue);
+            .mint(creatorAddress, 1, "https://fake-uri-1.com", artistAddress, royaltyValue, true);
         const receipt1 = await tx1.wait();
         token1Id = receipt1.events[0].args[3].toNumber();
 
         const tx2 = await nft
             .connect(creator)
-            .createToken("https://fake-uri-2.com", 99, artistAddress, royaltyValue);
+            .mint(creatorAddress, 99, "https://fake-uri-2.com", artistAddress, royaltyValue, false);
         const receipt2 = await tx2.wait();
         token2Id = receipt2.events[0].args[3].toNumber();
 
         const tx3 = await nft
             .connect(creator)
-            .createToken("https://fake-uri-3.com", 10, artistAddress, royaltyValue);
+            .mint(creatorAddress, 10, "https://fake-uri-3.com", artistAddress, royaltyValue, false);
         const receipt3 = await tx3.wait();
         token3Id = receipt3.events[0].args[3].toNumber();
 
@@ -92,35 +92,12 @@ describe.only("************ NFT ******************", () => {
         expect(Number(royaltyInfo.royaltyAmount)).to.equal((salePrice * royaltyValue) / 10000);
         expect(Number(await nft.balanceOf(creatorAddress, token1Id))).to.equal(1);
         expect(Number(await nft.balanceOf(creatorAddress, token2Id))).to.equal(99);
+        expect(await nft.hasMutableURI(token1Id)).to.equal(true);
+        expect(await nft.hasMutableURI(token2Id)).to.equal(false);
         expect(await nft.uri(token1Id)).to.equal("https://fake-uri-1.com");
     });
 
-    it("Should not change tokenURI if caller is not ower of the token", async () => {
-        // Change tokenURI
-        console.log("\tcontract owner changing tokenURI...");
-        await throwsException(
-            nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
-            "CoralNFT: Only token owner can set tokenURI."
-        );
-    });
-
-    it.only("Should change tokenURI", async () => {
-        // Initial data
-        const iniTokenURI = await nft.uri(token2Id);
-
-        // Change tokenURI
-        console.log("\tcreator changing tokenURI...");
-        await nft.connect(creator).setTokenUri(token2Id, newTokenURI);
-        console.log("\ttokenURI changed.");
-
-        // Final data
-        const endTokenURI = await nft.uri(token2Id);
-
-        expect(endTokenURI).to.not.equal(iniTokenURI);
-        expect(endTokenURI).to.equal(newTokenURI);
-    });
-
-    it.only("Should transfer single token", async () => {
+    it("Should transfer single token", async () => {
         // Transfer token
         console.log("\ttransfering token...");
         await nft
@@ -132,7 +109,7 @@ describe.only("************ NFT ******************", () => {
         expect(Number(await nft.balanceOf(recipientAddress, token1Id))).to.equal(1);
     });
 
-    it.only("Should transfer multiple tokens", async () => {
+    it("Should transfer multiple tokens", async () => {
         // Transfer token
         console.log("\ttransfering tokens...");
         await nft
@@ -161,6 +138,60 @@ describe.only("************ NFT ******************", () => {
         expect(Number(creatorT3Amount)).to.equal(7);
         expect(Number(recipientT3Amount)).to.equal(3);
     });
+
+    // TODO
+    it.skip("Should not change tokenURI if caller is not owner of total token supply", async () => {
+        // Change tokenURI
+        console.log("\tcontract owner changing tokenURI...");
+        await throwsException(
+            nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
+            "SqwidERC1155: Only token owner can set tokenURI."
+        );
+    });
+
+    // TODO
+    it.skip("Should not change tokenURI if token is not mutable", async () => {
+        // Change tokenURI
+        console.log("\tcontract owner changing tokenURI...");
+        await throwsException(
+            nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
+            "SqwidERC1155: Only token owner can set tokenURI."
+        );
+    });
+
+    // TODO
+    it.skip("Should change tokenURI", async () => {
+        // Initial data
+        const iniTokenURI = await nft.uri(token2Id);
+
+        // Change tokenURI
+        console.log("\tcreator changing tokenURI...");
+        await nft.connect(creator).setTokenUri(token2Id, newTokenURI);
+        console.log("\ttokenURI changed.");
+
+        // Final data
+        const endTokenURI = await nft.uri(token2Id);
+
+        expect(endTokenURI).to.not.equal(iniTokenURI);
+        expect(endTokenURI).to.equal(newTokenURI);
+    });
+
+    // TODO
+    it.skip("Should not change tokenURI if caller is not owner of total token supply", async () => {
+        // Change tokenURI
+        console.log("\tcontract owner changing tokenURI...");
+        await throwsException(
+            nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
+            "SqwidERC1155: Only token owner can set tokenURI."
+        );
+    });
+
+    // TODO
+    // burn
+    // burnBatch
+    // getOwners
+    // getTokenSupply
+    // getTokensByOwner
 
     async function throwsException(promise, message) {
         try {
