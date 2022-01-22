@@ -810,11 +810,10 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         positionInState(positionId, PositionState.Auction)
         nonReentrant
     {
-        // TODO uncomment!!
-        // require(
-        //     _idToAuctionData[positionId].deadline < block.timestamp,
-        //     "SqwidMarketplace: Auction deadline has not been reached yet."
-        // );
+        require(
+            _idToAuctionData[positionId].deadline < block.timestamp,
+            "SqwidMarketplace: Auction deadline has not been reached yet."
+        );
 
         uint256 itemId = _idToPosition[positionId].itemId;
         address seller = _idToPosition[positionId].owner;
@@ -867,39 +866,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         _idToItem[itemId].positionCount--;
         _onAuction.decrement();
 
-        // Create new position or update exising one for the receiver of the tokens
-        uint256 receiverPositionId;
-        Position memory receiverPosition = _fetchAvalailablePosition(
-            itemId,
-            receiver
-        );
-        if (receiverPosition.itemId != 0) {
-            receiverPositionId = receiverPosition.itemId;
-            _idToPosition[receiverPositionId].amount += amount;
-        } else {
-            _positionIds.increment();
-            receiverPositionId = _positionIds.current();
-            _idToPosition[receiverPositionId] = Position(
-                receiverPositionId,
-                itemId,
-                payable(msg.sender),
-                amount,
-                0,
-                0,
-                PositionState.Available
-            );
-            _idToItem[itemId].positionCount++;
-        }
-
-        emit PositionUpdate(
-            receiverPositionId,
-            _idToPosition[receiverPositionId].itemId,
-            _idToPosition[receiverPositionId].owner,
-            _idToPosition[receiverPositionId].amount,
-            _idToPosition[receiverPositionId].price,
-            _idToPosition[receiverPositionId].marketFee,
-            _idToPosition[receiverPositionId].state
-        );
+        _updatePositionForTokenReceiver(itemId, receiver, amount);
     }
 
     /**
@@ -933,182 +900,201 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     /**
      * Creates a raffle for a new item.
      */
-    // function createNewNftRaffle(
-    //     address nftContract,
-    //     uint256 tokenId,
-    //     uint256 numMinutes
-    // ) external {
-    //     require(
-    //         numMinutes <= 525600,
-    //         "SqwidMarketplace: Number of minutes cannot be greater than 525,600."
-    //     ); // 525,600 min = 1 year
+    function createNewNftRaffle(
+        address nftContract,
+        uint256 tokenId,
+        uint256 amount,
+        uint256 numMinutes
+    ) external {
+        require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
+        require(
+            numMinutes <= 44640,
+            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
+        ); // 44,640 min = 1 month
 
-    //     // Create market item
-    //     uint256 itemId = createMarketItem(nftContract, tokenId);
+        // Create market item
+        uint256 itemId = createItem(nftContract, tokenId);
 
-    //     // Create raffle
-    //     createMarketItemRaffle(itemId, numMinutes);
-    // }
+        // Create raffle
+        createItemRaffle(itemId, amount, numMinutes);
+    }
 
     /**
      * Creates a raffle from an existing market item.
      */
-    // function createMarketItemRaffle(uint256 itemId, uint256 numMinutes) public itemExists(itemId) {
-    //     require(
-    //         !_idToItem[itemId].onSale,
-    //         "SqwidMarketplace: This item is already on sale."
-    //     );
-    //     require(
-    //         numMinutes <= 525600,
-    //         "SqwidMarketplace: Number of minutes cannot be greater than 525,600."
-    //     ); // 525,600 min = 1 year
+    function createItemRaffle(
+        uint256 itemId,
+        uint256 amount,
+        uint256 numMinutes
+    ) public itemExists(itemId) {
+        address nftContract = _idToItem[itemId].nftContract;
+        uint256 tokenId = _idToItem[itemId].tokenId;
+        require(
+            amount <= IERC1155(nftContract).balanceOf(msg.sender, tokenId),
+            "SqwidMarketplace: Available NFT balance is not enough."
+        );
+        require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
+        require(
+            numMinutes <= 44640,
+            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
+        ); // 44,640 min = 1 month
 
-    //     // Transfer ownership of the token to this contract
-    //     IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
-    //         msg.sender,
-    //         address(this),
-    //         _idToItem[itemId].tokenId,
-    //         1,
-    //         ""
-    //     );
+        // Transfer ownership of the token to this contract
+        IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId,
+            amount,
+            ""
+        );
 
-    //     // Update MarketItem
-    //     _idToItem[itemId].seller = payable(msg.sender);
-    //     _idToItem[itemId].owner = payable(address(0));
-    //     _idToItem[itemId].price = 0;
-    //     _idToItem[itemId].marketFee = _marketFee;
-    //     _idToItem[itemId].onSale = true;
-    //     _idToItem[itemId].typeItem = TypeItem.Raffle;
+        // Map new Position
+        _positionIds.increment();
+        uint256 positionId = _positionIds.current();
+        _idToPosition[positionId] = Position(
+            positionId,
+            itemId,
+            payable(msg.sender),
+            amount,
+            0,
+            _marketFee,
+            PositionState.Raffle
+        );
 
-    //     // Create RaffleData
-    //     uint256 deadline = (block.timestamp + numMinutes * 1 minutes);
-    //     _idToRaffleData[itemId].deadline = deadline;
+        _idToItem[itemId].positionCount++;
 
-    //     _onRaffle.increment();
+        // Create RaffleData
+        uint256 deadline = (block.timestamp + numMinutes * 1 minutes);
+        _idToRaffleData[positionId].deadline = deadline;
 
-    //     emit MarketItemUpdate(
-    //         itemId,
-    //         _idToItem[itemId].nftContract,
-    //         _idToItem[itemId].tokenId,
-    //         msg.sender,
-    //         msg.sender,
-    //         0,
-    //         _marketFee,
-    //         TypeItem.Raffle
-    //     );
-    // }
+        _onRaffle.increment();
+
+        emit PositionUpdate(
+            positionId,
+            itemId,
+            msg.sender,
+            amount,
+            0,
+            _marketFee,
+            PositionState.Raffle
+        );
+    }
 
     /**
      * Adds entry to an active raffle.
      */
-    // function enterRaffle(uint256 itemId) external payable {
-    //     require(
-    //         _idToItem[itemId].onSale &&
-    //             _idToItem[itemId].typeItem == TypeItem.Raffle,
-    //         "SqwidMarketplace: There is no raffle active for this item."
-    //     );
-    //     require(
-    //         msg.value >= 1 * (10**18),
-    //         "SqwidMarketplace: Value of transaction must be at least 1 REEF."
-    //     );
+    function enterRaffle(uint256 positionId)
+        external
+        payable
+        positionInState(positionId, PositionState.Raffle)
+    {
+        require(
+            _idToRaffleData[positionId].deadline >= block.timestamp,
+            "SqwidMarketplace: Raffle has ended."
+        );
+        require(
+            msg.value >= 1 * (10**18),
+            "SqwidMarketplace: Value of transaction must be at least 1 REEF."
+        );
 
-    //     uint256 value = msg.value / (10**18);
+        uint256 value = msg.value / (10**18);
 
-    //     // Update RaffleData
-    //     if (!(_idToRaffleData[itemId].addressToAmount[msg.sender] > 0)) {
-    //         _idToRaffleData[itemId].indexToAddress[
-    //             _idToRaffleData[itemId].totalAddresses
-    //         ] = payable(msg.sender);
-    //         _idToRaffleData[itemId].totalAddresses += 1;
-    //     }
-    //     _idToRaffleData[itemId].addressToAmount[msg.sender] += value;
-    //     _idToRaffleData[itemId].totalValue += value;
-    // }
+        // Update RaffleData
+        if (!(_idToRaffleData[positionId].addressToAmount[msg.sender] > 0)) {
+            _idToRaffleData[positionId].indexToAddress[
+                _idToRaffleData[positionId].totalAddresses
+            ] = payable(msg.sender);
+            _idToRaffleData[positionId].totalAddresses += 1;
+        }
+        _idToRaffleData[positionId].addressToAmount[msg.sender] += value;
+        _idToRaffleData[positionId].totalValue += value;
+    }
 
     /**
      * Ends open raffle.
      */
-    // function endRaffle(uint256 itemId) external nonReentrant {
-    //     require(
-    //         _idToItem[itemId].onSale &&
-    //             _idToItem[itemId].typeItem == TypeItem.Raffle,
-    //         "SqwidMarketplace: There is no raffle open for this item."
-    //     );
-    //     require(
-    //         _idToRaffleData[itemId].deadline < block.timestamp,
-    //         "SqwidMarketplace: Raffle deadline has not been reached yet."
-    //     );
+    function endRaffle(uint256 positionId)
+        external
+        positionInState(positionId, PositionState.Raffle)
+        nonReentrant
+    {
+        require(
+            _idToRaffleData[positionId].deadline < block.timestamp,
+            "SqwidMarketplace: Raffle deadline has not been reached yet."
+        );
 
-    //     // Update MarketItem
-    //     _idToItem[itemId].onSale = false;
-    //     _onRaffle.decrement();
+        uint256 itemId = _idToPosition[positionId].itemId;
+        address seller = _idToPosition[positionId].owner;
+        address receiver;
+        uint256 amount = _idToPosition[positionId].amount;
 
-    //     // Check if there are participants in the raffle
-    //     if (_idToRaffleData[itemId].totalAddresses == 0) {
-    //         address payable seller = _idToItem[itemId].seller;
-    //         // Transfer ownership back to seller
-    //         IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
-    //             address(this),
-    //             seller,
-    //             _idToItem[itemId].tokenId,
-    //             1,
-    //             ""
-    //         );
+        // Check if there are participants in the raffle
+        if (_idToRaffleData[positionId].totalAddresses == 0) {
+            receiver = seller;
+            // Transfer ownership back to seller
+            IERC1155(_idToItem[positionId].nftContract).safeTransferFrom(
+                address(this),
+                receiver,
+                _idToItem[positionId].tokenId,
+                amount,
+                ""
+            );
+        } else {
+            // Choose winner for the raffle
+            uint256 totalValue = _idToRaffleData[positionId].totalValue;
+            uint256 indexWinner = _pseudoRand() % totalValue;
+            uint256 lastIndex = 0;
+            for (
+                uint256 i = 0;
+                i < _idToRaffleData[positionId].totalAddresses;
+                i++
+            ) {
+                address currAddress = _idToRaffleData[positionId]
+                    .indexToAddress[i];
+                lastIndex += _idToRaffleData[positionId].addressToAmount[
+                    currAddress
+                ];
+                if (indexWinner < lastIndex) {
+                    receiver = currAddress;
+                    // Create transaction to winner
+                    _createItemTransaction(
+                        positionId,
+                        receiver,
+                        totalValue * (10**18),
+                        amount
+                    );
+                    // Add sale to item
+                    _idToItem[itemId].sales.push(
+                        ItemSale(
+                            seller,
+                            receiver,
+                            totalValue * (10**18),
+                            amount
+                        )
+                    );
+                    emit MarketItemSold(
+                        itemId,
+                        _idToItem[itemId].nftContract,
+                        _idToItem[itemId].tokenId,
+                        seller,
+                        receiver,
+                        totalValue,
+                        amount
+                    );
+                    break;
+                }
+            }
+        }
 
-    //         // Update item in the mapping
-    //         _idToItem[itemId].owner = seller;
+        // Delete position and raffle data
+        delete _idToRaffleData[positionId];
+        delete _idToPosition[positionId];
+        emit PositionDelete(positionId);
+        _idToItem[positionId].positionCount--;
+        _onRaffle.decrement();
 
-    //         delete _idToRaffleData[itemId];
-    //     } else {
-    //         // Choose winner for the raffle
-    //         uint256 totalValue = _idToRaffleData[itemId].totalValue;
-    //         uint256 indexWinner = _pseudoRand() % totalValue;
-    //         uint256 lastIndex = 0;
-    //         for (
-    //             uint256 i = 0;
-    //             i < _idToRaffleData[itemId].totalAddresses;
-    //             i++
-    //         ) {
-    //             address currAddress = _idToRaffleData[itemId].indexToAddress[i];
-    //             lastIndex += _idToRaffleData[itemId].addressToAmount[
-    //                 currAddress
-    //             ];
-    //             if (indexWinner < lastIndex) {
-    //                 address payable seller = _idToItem[itemId].seller;
-    //                 _createItemTransaction(
-    //                     itemId,
-    //                     currAddress,
-    //                     totalValue * (10**18)
-    //                 );
-
-    //                 // Update item in the mapping
-    //                 _idToItem[itemId].owner = payable(currAddress);
-    //                 _idToItem[itemId].sales.push(
-    //                     MarketItemSale(
-    //                         seller,
-    //                         currAddress,
-    //                         totalValue * (10**18),
-    //                         TypeItem.Raffle
-    //                     )
-    //                 );
-
-    //                 delete _idToRaffleData[itemId];
-
-    //                 break;
-    //             }
-    //         }
-
-    //         emit MarketItemSold(
-    //             itemId,
-    //             _idToItem[itemId].nftContract,
-    //             _idToItem[itemId].tokenId,
-    //             _idToItem[itemId].seller,
-    //             msg.sender,
-    //             totalValue,
-    //             TypeItem.Raffle
-    //         );
-    //     }
-    // }
+        _updatePositionForTokenReceiver(itemId, receiver, amount);
+    }
 
     /**
      * Returns all active raffles.
@@ -1309,5 +1295,47 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
 
         Position memory emptyPosition;
         return emptyPosition;
+    }
+
+    /**
+     * Creates new position or update exising one for receiver of tokens.
+     */
+    function _updatePositionForTokenReceiver(
+        uint256 itemId,
+        address receiver,
+        uint256 amount
+    ) private {
+        uint256 receiverPositionId;
+        Position memory receiverPosition = _fetchAvalailablePosition(
+            itemId,
+            receiver
+        );
+        if (receiverPosition.itemId != 0) {
+            receiverPositionId = receiverPosition.itemId;
+            _idToPosition[receiverPositionId].amount += amount;
+        } else {
+            _positionIds.increment();
+            receiverPositionId = _positionIds.current();
+            _idToPosition[receiverPositionId] = Position(
+                receiverPositionId,
+                itemId,
+                payable(receiver),
+                amount,
+                0,
+                0,
+                PositionState.Available
+            );
+            _idToItem[itemId].positionCount++;
+        }
+
+        emit PositionUpdate(
+            receiverPositionId,
+            _idToPosition[receiverPositionId].itemId,
+            _idToPosition[receiverPositionId].owner,
+            _idToPosition[receiverPositionId].amount,
+            _idToPosition[receiverPositionId].price,
+            _idToPosition[receiverPositionId].marketFee,
+            _idToPosition[receiverPositionId].state
+        );
     }
 }

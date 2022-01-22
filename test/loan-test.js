@@ -375,7 +375,7 @@ describe("************ Loans ******************", () => {
     }
 
     function formatBigNumber(bigNumber) {
-        return Number(Number(ethers.utils.formatUnits(bigNumber.toString(), "ether")).toFixed(2));
+        return Number(Number(ethers.utils.formatUnits(bigNumber.toString(), "ether")).toFixed(4));
     }
 
     async function throwsException(promise, message) {

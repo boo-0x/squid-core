@@ -64,7 +64,7 @@ describe("************ Auctions ******************", () => {
         bid1Amount = ethers.utils.parseUnits("49", "ether");
         bid2Amount = ethers.utils.parseUnits("60", "ether");
         bid3Amount = ethers.utils.parseUnits("1", "ether");
-        bid4Amount = ethers.utils.parseUnits("620", "ether");
+        bid4Amount = ethers.utils.parseUnits("62", "ether");
         royaltyValue = 1000; // 10%
 
         if (!marketContractAddress) {

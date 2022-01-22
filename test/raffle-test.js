@@ -1,7 +1,7 @@
 const { expect, assert } = require("chai");
 const ReefAbi = require("./ReefToken.json");
 
-describe("************ Raffles ******************", () => {
+describe.only("************ Raffles ******************", () => {
     let market,
         nft,
         owner,
@@ -22,11 +22,13 @@ describe("************ Raffles ******************", () => {
         reefToken,
         tokenId,
         itemId,
+        raffleId,
         royaltyValue,
         maxGasFee,
         numMinutes,
         buyer1RaffleAmount,
-        buyer2RaffleAmount;
+        buyer2RaffleAmount,
+        tokensAmount;
 
     before(async () => {
         // Deployed contract addresses (comment to deploy new contracts)
@@ -60,28 +62,35 @@ describe("************ Raffles ******************", () => {
         buyer1RaffleAmount = ethers.utils.parseUnits("100", "ether");
         buyer2RaffleAmount = ethers.utils.parseUnits("50", "ether");
         royaltyValue = 1000; // 10%
+        tokensAmount = 15;
 
         if (!marketContractAddress || marketContractAddress == "") {
-            // Deploy CoralMarketplace contract
+            // Deploy SqwidMarketplace contract
             console.log("\tdeploying Market contract...");
             await getBalance(ownerAddress, "owner");
-            const Market = await reef.getContractFactory("CoralMarketplace", owner);
+            const Market = await reef.getContractFactory("SqwidMarketplace", owner);
             market = await Market.deploy(marketFee);
             await market.deployed();
             marketContractAddress = market.address;
             await getBalance(ownerAddress, "owner");
+
+            if (nftContractAddress) {
+                const NFT = await reef.getContractFactory("SqwidERC1155", owner);
+                nft = await NFT.attach(nftContractAddress);
+                await nft.connect(owner).setMarketplaceAddress(marketContractAddress);
+            }
         } else {
             // Get deployed contract
-            const Market = await reef.getContractFactory("CoralMarketplace", owner);
+            const Market = await reef.getContractFactory("SqwidMarketplace", owner);
             market = await Market.attach(marketContractAddress);
         }
         console.log(`\tMarket contract deployed in ${marketContractAddress}`);
 
         if (!nftContractAddress || nftContractAddress == "") {
-            // Deploy CoralNFT contract
+            // Deploy SqwidERC1155 contract
             console.log("\tdeploying NFT contract...");
             await getBalance(ownerAddress, "owner");
-            const NFT = await reef.getContractFactory("CoralNFT", owner);
+            const NFT = await reef.getContractFactory("SqwidERC1155", owner);
             nft = await NFT.deploy(
                 marketContractAddress,
                 "0x0000000000000000000000000000000000000000"
@@ -91,57 +100,64 @@ describe("************ Raffles ******************", () => {
             await getBalance(ownerAddress, "owner");
         } else {
             // Get deployed contract
-            const NFT = await reef.getContractFactory("CoralNFT", owner);
+            const NFT = await reef.getContractFactory("SqwidERC1155", owner);
             nft = await NFT.attach(nftContractAddress);
         }
         console.log(`\tNFT contact deployed ${nftContractAddress}`);
 
         // Create NFT
-        console.log("\tseller creating NFTs...");
-        await getBalance(sellerAddress, "seller");
-        const tx = await nft
+        console.log("\tcreating token...");
+        const tx1 = await nft
             .connect(seller)
-            .createToken("https://fake-uri.com", 1, artistAddress, royaltyValue, false);
-        const receipt = await tx.wait();
-        tokenId = receipt.events[0].args[2].toNumber();
+            .mint(
+                sellerAddress,
+                tokensAmount,
+                "https://fake-uri.com",
+                artistAddress,
+                royaltyValue,
+                true
+            );
+        const receipt1 = await tx1.wait();
+        tokenId = receipt1.events[0].args[3].toNumber();
         console.log(`\tNFT created with tokenId ${tokenId}`);
-        await getBalance(sellerAddress, "seller");
     });
 
     it("Should create raffle", async () => {
         // Initial data
-        const iniItems = await market.fetchRaffles();
-        const iniTokenOwner = await nft.ownerOf(tokenId);
+        const iniRaffles = await market.fetchAllRaffles();
+        const iniSellerTokenAmount = await nft.balanceOf(sellerAddress, tokenId);
+        const iniMarketTokenAmount = await nft.balanceOf(marketContractAddress, tokenId);
 
         // Create raffle
         console.log("\tseller creating raffle...");
         await getBalance(sellerAddress, "seller");
-        await market.connect(seller).createNewNftRaffle(nftContractAddress, tokenId, numMinutes);
+        await market
+            .connect(seller)
+            .createNewNftRaffle(nftContractAddress, tokenId, tokensAmount, numMinutes);
         console.log("\traffle created.");
         await getBalance(sellerAddress, "seller");
 
         // Final data
-        const items = await market.fetchRaffles();
-        const item = items[items.length - 1];
-        const itemUri = await nft.tokenURI(item.tokenId);
-        const endTokenOwner = await nft.ownerOf(tokenId);
-        itemId = Number(item.itemId);
-        const raffleData = await market.fetchRaffleData(itemId);
-        deadline = new Date(raffleData.deadline * 1000);
+        const endRaffles = await market.fetchAllRaffles();
+        const raffle = endRaffles.at(-1);
+        raffleId = raffle.positionId;
+        const itemUri = await nft.uri(raffle.item.tokenId);
+        itemId = Number(raffle.item.itemId);
+        const endSellerTokenAmount = await nft.balanceOf(sellerAddress, tokenId);
+        const endMarketTokenAmount = await nft.balanceOf(marketContractAddress, tokenId);
+        deadline = new Date(raffle.raffleData.deadline * 1000);
 
         // Evaluate results
-        expect(iniTokenOwner).to.equal(sellerAddress);
-        expect(endTokenOwner).to.equal(marketContractAddress);
-        expect(items.length).to.equal(iniItems.length + 1);
+        expect(iniSellerTokenAmount - endSellerTokenAmount).to.equal(tokensAmount);
+        expect(endMarketTokenAmount - iniMarketTokenAmount).to.equal(tokensAmount);
+        expect(endRaffles.length).to.equal(iniRaffles.length + 1);
         expect(itemUri).to.equal("https://fake-uri.com");
-        expect(item.nftContract).to.equal(nftContractAddress);
-        expect(Number(item.tokenId)).to.equal(tokenId);
-        expect(item.seller).to.equal(sellerAddress);
-        expect(parseInt(item.owner, 16)).to.equal(0);
-        expect(item.creator).to.equal(sellerAddress);
-        expect(Number(item.marketFee)).to.equal(Number(marketFee));
-        expect(item.onSale).to.equal(true);
-        expect(item.typeItem).to.equal(2);
+        expect(raffle.item.nftContract).to.equal(nftContractAddress);
+        expect(Number(raffle.item.tokenId)).to.equal(tokenId);
+        expect(raffle.owner).to.equal(sellerAddress);
+        expect(raffle.item.creator).to.equal(sellerAddress);
+        expect(Number(raffle.marketFee)).to.equal(Number(marketFee));
+        expect(raffle.state).to.equal(3); // Raffle = 3
         expect(deadline)
             .to.lt(new Date(new Date().getTime() + 120000))
             .gt(new Date());
@@ -155,16 +171,17 @@ describe("************ Raffles ******************", () => {
 
         // Add entries
         console.log("\tbuyer1 enters NFT raffle...");
-        await market.connect(buyer1).enterRaffle(itemId, { value: buyer1RaffleAmount });
+        await market.connect(buyer1).enterRaffle(raffleId, { value: buyer1RaffleAmount });
         console.log("\tbuyer1 entry created");
         console.log("\tbuyer2 enters NFT raffle...");
-        await market.connect(buyer2).enterRaffle(itemId, { value: buyer2RaffleAmount });
+        await market.connect(buyer2).enterRaffle(raffleId, { value: buyer2RaffleAmount });
         console.log("\tbuyer2 entry created");
 
         // Final data
         const endBuyer1Balance = await getBalance(buyer1Address, "buyer1");
         const endBuyer2Balance = await getBalance(buyer2Address, "buyer2");
         const endMarketBalance = await getBalance(marketContractAddress, "market");
+        const raffle = await market.fetchPosition(raffleId);
 
         // Evaluate results
         expect(Math.round(endBuyer1Balance))
@@ -197,29 +214,32 @@ describe("************ Raffles ******************", () => {
                     formatBigNumber(buyer2RaffleAmount) +
                     1
             );
-    });
+        expect(Number(raffle.raffleData.totalAddresses)).to.equal(2);
 
-    it("Should get amount sent to raffle", async () => {
-        const raffleData = await market.connect(buyer1).fetchRaffleData(itemId);
-        expect(Number(raffleData.contribution)).to.equal(Number(buyer1RaffleAmount));
+        expect(Number(raffle.raffleData.totalValue)).to.equal(
+            formatBigNumber(buyer1RaffleAmount) + formatBigNumber(buyer2RaffleAmount)
+        );
     });
 
     it("Should not end raffle before deadline", async () => {
         console.log("\tending raffle...");
         await throwsException(
-            market.connect(seller).endRaffle(itemId),
-            "CoralMarketplace: Raffle deadline has not been reached yet."
+            market.connect(seller).endRaffle(raffleId),
+            "SqwidMarketplace: Raffle deadline has not been reached yet."
         );
     });
 
-    it("Should end raffle and send NFT to winner", async () => {
+    it.skip("Should end raffle and send NFT to winner", async () => {
         // Initial data
+        const iniRaffles = await market.fetchAllRaffles();
         const iniSellerBalance = await getBalance(sellerAddress, "seller");
         const iniArtistBalance = await getBalance(artistAddress, "artist");
         const iniOwnerBalance = await getBalance(ownerAddress, "marketOwner");
-        const iniTokenOwner = await nft.ownerOf(tokenId);
         const iniMarketBalance = await getBalance(marketContractAddress, "market");
         await getBalance(helperAddress, "helper");
+        const iniBuyer1TokenAmount = Number(await nft.balanceOf(buyer1Address, tokenId));
+        const iniBuyer2TokenAmount = Number(await nft.balanceOf(buyer2Address, tokenId));
+        const iniMarketTokenAmount = Number(await nft.balanceOf(marketContractAddress, tokenId));
 
         // Wait until deadline
         const timeUntilDeadline = deadline - new Date();
@@ -232,24 +252,32 @@ describe("************ Raffles ******************", () => {
 
         // End raffle
         console.log("\tending raffle...");
-        await market.connect(helper).endRaffle(itemId);
+        await market.connect(helper).endRaffle(raffleId);
         console.log("\traffle ended.");
 
         // Final data
+        const endRaffles = await market.fetchAllRaffles();
         const endItem = await market.fetchItem(itemId);
         const endSellerBalance = await getBalance(sellerAddress, "seller");
         const endArtistBalance = await getBalance(artistAddress, "artist");
         const endOwnerBalance = await getBalance(ownerAddress, "marketOwner");
-        const endTokenOwner = await nft.ownerOf(tokenId);
         const endMarketBalance = await getBalance(marketContractAddress, "market");
         const royaltiesAmount = (ethers.utils.parseUnits("150", "ether") * royaltyValue) / 10000;
         const marketFeeAmount =
             ((ethers.utils.parseUnits("150", "ether") - royaltiesAmount) * marketFee) / 10000;
         await getBalance(helperAddress, "helper");
+        const endBuyer1TokenAmount = Number(await nft.balanceOf(buyer1Address, tokenId));
+        const endBuyer2TokenAmount = Number(await nft.balanceOf(buyer2Address, tokenId));
+        const endMarketTokenAmount = Number(await nft.balanceOf(marketContractAddress, tokenId));
 
         // Evaluate results
-        expect(iniTokenOwner).to.equal(marketContractAddress);
-        expect(endTokenOwner).to.be.oneOf([buyer1Address, buyer2Address]);
+        expect(iniMarketTokenAmount - endMarketTokenAmount).to.equal(tokensAmount);
+        expect(
+            endBuyer1TokenAmount +
+                endBuyer2TokenAmount -
+                iniBuyer1TokenAmount -
+                iniBuyer2TokenAmount
+        ).to.equal(tokensAmount);
         expect(Math.round(endArtistBalance)).to.equal(
             Math.round(iniArtistBalance + formatBigNumber(royaltiesAmount))
         );
@@ -277,20 +305,20 @@ describe("************ Raffles ******************", () => {
                     formatBigNumber(buyer2RaffleAmount) +
                     1
             );
+
         expect(endItem.sales[0].seller).to.equal(sellerAddress);
         expect(endItem.sales[0].buyer).to.be.oneOf([buyer1Address, buyer2Address]);
         expect(Number(endItem.sales[0].price)).to.equal(
-            Number(buyer1RaffleAmount) + Number(buyer2RaffleAmount)
+            formatBigNumber(buyer1RaffleAmount) + formatBigNumber(buyer2RaffleAmount)
         );
-        expect(endItem.owner).to.be.oneOf([buyer1Address, buyer2Address]);
-        expect(endItem.onSale).to.equal(false);
+        expect(iniRaffles.length - endRaffles.length).to.equal(1);
     });
 
     it("Create new raffle with existing market item", async () => {
         // Initial data
-        const iniItem = await market.fetchItem(itemId);
-        expect(iniItem.onSale).to.equal(false);
-        const signer = iniItem.owner == buyer1Address ? buyer1 : buyer2;
+        const iniRaffles = await market.fetchAllRaffles();
+        const iniBuyer1TokenAmount = await nft.balanceOf(buyer1Address, tokenId);
+        const signer = Number(iniBuyer1TokenAmount) > 0 ? buyer1 : buyer2;
 
         // Approve market contract for this address
         console.log("\tcreating approval for market contract...");
@@ -299,14 +327,14 @@ describe("************ Raffles ******************", () => {
 
         // Create raffle
         console.log("\tcreating NFT raffle...");
-        await market.connect(signer).createMarketItemRaffle(itemId, numMinutes);
+        await market.connect(signer).createItemRaffle(itemId, tokensAmount, numMinutes);
         console.log("\tNFT raffle created");
 
         // Final data
-        const endItem = await market.fetchItem(itemId);
+        const endRaffles = await market.fetchAllRaffles();
 
         // Evaluate result
-        expect(endItem.onSale).to.equal(true);
+        expect(endRaffles.length - iniRaffles.length).to.equal(1);
     });
 
     async function getBalance(address, name) {
@@ -318,7 +346,7 @@ describe("************ Raffles ******************", () => {
     }
 
     function formatBigNumber(bigNumber) {
-        return Number(Number(ethers.utils.formatUnits(bigNumber.toString(), "ether")).toFixed(2));
+        return Number(Number(ethers.utils.formatUnits(bigNumber.toString(), "ether")).toFixed(4));
     }
 
     async function throwsException(promise, message) {
