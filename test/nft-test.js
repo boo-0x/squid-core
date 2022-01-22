@@ -201,4 +201,21 @@ describe("************ NFT ******************", () => {
             expect(error.message).contains(message);
         }
     }
+
+    async function logEvents(promise) {
+        const tx = await promise;
+        const receipt = await tx.wait();
+
+        let msg = "No events for this tx";
+        if (receipt.events) {
+            const eventsArgs = [];
+            receipt.events.forEach((event) => {
+                if (event.args) {
+                    eventsArgs.push(event.args);
+                }
+            });
+            msg = eventsArgs;
+        }
+        console.log(msg);
+    }
 });

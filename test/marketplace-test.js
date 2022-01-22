@@ -1,7 +1,7 @@
 const { expect, assert } = require("chai");
 const ReefAbi = require("./ReefToken.json");
 
-describe.only("************ Marketplace ******************", () => {
+describe("************ Marketplace ******************", () => {
     let market,
         nft,
         owner,
@@ -17,7 +17,6 @@ describe.only("************ Marketplace ******************", () => {
         sellerAddress,
         artistAddress,
         buyer1Address,
-        buyer2Address,
         reefToken,
         token1Id,
         token2Id,
@@ -123,7 +122,6 @@ describe.only("************ Marketplace ******************", () => {
             .mint(sellerAddress, 1, "https://fake-uri-1.com", artistAddress, royaltyValue, true);
         const receipt1 = await tx1.wait();
         token1Id = receipt1.events[0].args[3].toNumber();
-
         console.log(`\tNFTs created with tokenId ${token1Id}`);
 
         // Create market item
@@ -160,11 +158,14 @@ describe.only("************ Marketplace ******************", () => {
         expect(Number(position.amount)).to.equal(1);
         expect(Number(position.price)).to.equal(Number(salePrice));
         expect(Number(position.marketFee)).to.equal(Number(marketFee));
-        expect(Number(position.state)).to.equal(1); // RegularSale = 1
+        expect(Number(position.state)).to.equal(1); // PositionState.RegularSale = 1
         expect(Number(item.positions[0].positionId)).to.equal(position1Id);
     });
 
-    it.only("Should put new nft on sale", async () => {
+    it("Should put new nft on sale", async () => {
+        // Initial data
+        const iniPositionsOnRegSale = await market.fetchAllOnRegularSale();
+
         // Create token
         console.log("\tcreating token...");
         const tx1 = await nft
@@ -188,6 +189,7 @@ describe.only("************ Marketplace ******************", () => {
         // Results
         const position = await market.fetchPosition(position2Id);
         const item = await market.fetchItem(item2Id);
+        const endPositionsOnRegSale = await market.fetchAllOnRegularSale();
 
         // Evaluate results
         expect(Number(position.positionId)).to.equal(position2Id);
@@ -198,9 +200,11 @@ describe.only("************ Marketplace ******************", () => {
         expect(Number(position.marketFee)).to.equal(Number(marketFee));
         expect(Number(position.state)).to.equal(1); // RegularSale = 1
         expect(Number(item.positions[0].positionId)).to.equal(position2Id);
+        expect(endPositionsOnRegSale.length - iniPositionsOnRegSale.length).to.equal(1);
+        expect(Number(endPositionsOnRegSale.at(-1).positionId)).to.equal(position2Id);
     });
 
-    it("Should get created items", async () => {
+    it("Should get address created items", async () => {
         // Get items created by seller
         console.log("\tgetting seller creations...");
         const items = await market.connect(seller).fetchMyItemsCreated();
@@ -265,7 +269,7 @@ describe.only("************ Marketplace ******************", () => {
         expect(Number(item.sales[0].price)).to.equal(Number(salePrice));
     });
 
-    it.only("Should allow to end sale only to seller", async () => {
+    it("Should allow to end sale only to seller", async () => {
         // Initial data
         const iniTokenBalance = await nft.balanceOf(sellerAddress, token2Id);
         const iniItem = await market.fetchItem(item2Id);
@@ -312,5 +316,22 @@ describe.only("************ Marketplace ******************", () => {
         } catch (error) {
             expect(error.message).contains(message);
         }
+    }
+
+    async function logEvents(promise) {
+        const tx = await promise;
+        const receipt = await tx.wait();
+
+        let msg = "No events for this tx";
+        if (receipt.events) {
+            const eventsArgs = [];
+            receipt.events.forEach((event) => {
+                if (event.args) {
+                    eventsArgs.push(event.args);
+                }
+            });
+            msg = eventsArgs;
+        }
+        console.log(msg);
     }
 });

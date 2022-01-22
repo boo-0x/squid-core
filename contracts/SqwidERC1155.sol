@@ -207,12 +207,10 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
             balanceOf(msg.sender, tokenId) == getTokenSupply(tokenId),
             "ERC1155: Only the owner of the total balance can set token URI."
         );
-
-        // TODO
-        // require(
-        //     _mutableMetadataMapping[tokenId],
-        //     "CoralNFT: The metadata of this token is immutable."
-        // );
+        require(
+            _mutableMetadataMapping[tokenId],
+            "SquidERC1155: The metadata of this token is immutable."
+        );
 
         _uris[tokenId] = uriValue;
     }
