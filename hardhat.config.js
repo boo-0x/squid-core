@@ -52,10 +52,10 @@ module.exports = {
         },
     },
     mocha: {
-        timeout: 100000,
+        timeout: 150000,
     },
     contracts: {
-        market: "0xa5Bce94ba8447BA292CA7132399D3bD0be936CC8",
+        market: "0xA91BE1e6eF7b6E02D580aFEeCbEF5978FFA4B4F6",
         loan: "",
         nft: "0x2Db497FDb4d4c057F6c6731eA6FbAEe2dA69C83D",
         reef: "0x0000000000000000000000000000000001000000",

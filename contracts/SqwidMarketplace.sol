@@ -820,6 +820,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         address receiver;
         uint256 amount = _idToPosition[positionId].amount;
 
+        // Check if there are bids
         if (_idToAuctionData[positionId].highestBid > 0) {
             receiver = _idToAuctionData[positionId].highestBidder;
             // Create transaction
@@ -1029,17 +1030,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         uint256 amount = _idToPosition[positionId].amount;
 
         // Check if there are participants in the raffle
-        if (_idToRaffleData[positionId].totalAddresses == 0) {
-            receiver = seller;
-            // Transfer ownership back to seller
-            IERC1155(_idToItem[positionId].nftContract).safeTransferFrom(
-                address(this),
-                receiver,
-                _idToItem[positionId].tokenId,
-                amount,
-                ""
-            );
-        } else {
+        if (_idToRaffleData[positionId].totalAddresses > 0) {
             // Choose winner for the raffle
             uint256 totalValue = _idToRaffleData[positionId].totalValue;
             uint256 indexWinner = _pseudoRand() % totalValue;
@@ -1084,13 +1075,23 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
                     break;
                 }
             }
+        } else {
+            receiver = seller;
+            // Transfer ownership back to seller
+            IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+                address(this),
+                receiver,
+                _idToItem[itemId].tokenId,
+                amount,
+                ""
+            );
         }
 
         // Delete position and raffle data
         delete _idToRaffleData[positionId];
         delete _idToPosition[positionId];
         emit PositionDelete(positionId);
-        _idToItem[positionId].positionCount--;
+        _idToItem[itemId].positionCount--;
         _onRaffle.decrement();
 
         _updatePositionForTokenReceiver(itemId, receiver, amount);

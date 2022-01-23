@@ -122,7 +122,7 @@ describe("************ Marketplace ******************", () => {
             .mint(sellerAddress, 1, "https://fake-uri-1.com", artistAddress, royaltyValue, true);
         const receipt1 = await tx1.wait();
         token1Id = receipt1.events[0].args[3].toNumber();
-        console.log(`\tNFTs created with tokenId ${token1Id}`);
+        console.log(`\tNFT created with tokenId ${token1Id}`);
 
         // Create market item
         const tx2 = await market.connect(seller).createItem(nftContractAddress, token1Id);
