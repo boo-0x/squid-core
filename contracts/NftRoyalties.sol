@@ -38,7 +38,7 @@ contract NftRoyalties {
     ) internal {
         require(
             value <= 5000,
-            "ERC2981Base: Royalties value cannot be higher than 5000."
+            "NftRoyalties: Royalties value cannot be higher than 5000."
         );
         royalties[tokenId] = RoyaltyInfo(recipient, uint24(value));
     }

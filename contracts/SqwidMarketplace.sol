@@ -71,6 +71,14 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         uint256 totalAddresses;
     }
 
+    struct LoanData {
+        uint256 loanAmount;
+        uint256 feeAmount;
+        uint256 numMinutes;
+        uint256 deadline;
+        address lender;
+    }
+
     struct ItemResponse {
         uint256 itemId;
         address nftContract;
@@ -90,6 +98,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         PositionState state;
         AuctionData auctionData;
         RaffleDataResponse raffleData;
+        LoanData loanData;
     }
 
     struct RaffleDataResponse {
@@ -101,21 +110,19 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     // bytes4(keccak256("royaltyInfo(uint256,uint256)")) == 0x2a55205a
     bytes4 private constant INTERFACE_ID_ERC2981 = 0x2a55205a;
 
-    address private _loanAddress;
     uint256 private _marketFee;
     Counters.Counter private _itemIds;
     Counters.Counter private _positionIds;
     Counters.Counter private _onRegularSale;
     Counters.Counter private _onAuction;
     Counters.Counter private _onRaffle;
+    Counters.Counter private _onLoan;
 
     mapping(uint256 => Item) private _idToItem;
-
     mapping(uint256 => Position) private _idToPosition;
-
     mapping(uint256 => AuctionData) private _idToAuctionData;
-
     mapping(uint256 => RaffleData) private _idToRaffleData;
+    mapping(uint256 => LoanData) private _idToLoanData;
 
     modifier itemExists(uint256 itemId) {
         require(
@@ -205,20 +212,6 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     }
 
     /**
-     * Returns loan contract address.
-     */
-    function getLoanAddress() external view returns (address) {
-        return _loanAddress;
-    }
-
-    /**
-     * Sets loan contract address.
-     */
-    function setLoanAddress(address loanAddress) external virtual onlyOwner {
-        _loanAddress = loanAddress;
-    }
-
-    /**
      * Creates new market item.
      */
     function createItem(address nftContract, uint256 tokenId)
@@ -256,36 +249,6 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     }
 
     /**
-     * Updates an item position from SqwidLoan contract.
-     * TODO
-     */
-    // function updatePosition(
-    //     uint256 positionId,
-    //     address newItemOwner,
-    //     bool isOnLoan
-    // ) public virtual {
-    //     require(
-    //         msg.sender == _loanAddress,
-    //         "SqwidMarketplace: Only loan contract can change item position owner."
-    //     );
-
-    //     _idToPosition[positionId].owner = payable(newItemOwner);
-    //     _idToPosition[positionId].state = isOnLoan
-    //         ? PositionState.Loan
-    //         : PositionState.Available;
-
-    //     emit PositionUpdate(
-    //         positionId,
-    //         _idToPosition[positionId].itemId,
-    //         newItemOwner,
-    //         _idToPosition[positionId].amount,
-    //         _idToPosition[positionId].price,
-    //         _idToPosition[positionId].marketFee,
-    //         _idToPosition[positionId].state
-    //     );
-    // }
-
-    /**
      * Returns item and all its item positions.
      */
     function fetchItem(uint256 itemId)
@@ -303,6 +266,24 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
                 _idToItem[itemId].sales,
                 _fetchPositionsByItemId(itemId)
             );
+    }
+
+    /**
+     * Returns all items and all its item positions.
+     */
+    function fetchAllItems() public view returns (ItemResponse[] memory) {
+        uint256 totalItemCount = _itemIds.current();
+
+        // Initialize array
+        ItemResponse[] memory items = new ItemResponse[](totalItemCount);
+
+        // Fill array
+        uint256 currentIndex = 0;
+        for (uint256 i = 0; i < totalItemCount; i++) {
+            items[currentIndex] = fetchItem(i + 1);
+        }
+
+        return items;
     }
 
     /**
@@ -349,6 +330,55 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     }
 
     /**
+     * Returns item position.
+     */
+    function fetchPosition(uint256 positionId)
+        public
+        view
+        positionExists(positionId)
+        returns (PositionResponse memory)
+    {
+        AuctionData memory auctionData;
+        RaffleDataResponse memory raffleData;
+        LoanData memory loanData;
+        if (_idToPosition[positionId].state == PositionState.Auction) {
+            auctionData = _idToAuctionData[positionId];
+        } else if (_idToPosition[positionId].state == PositionState.Raffle) {
+            raffleData.deadline = _idToRaffleData[positionId].deadline;
+            raffleData.totalValue = _idToRaffleData[positionId].totalValue;
+            raffleData.totalAddresses = _idToRaffleData[positionId]
+                .totalAddresses;
+        } else if (_idToPosition[positionId].state == PositionState.Loan) {
+            loanData = _idToLoanData[positionId];
+        }
+
+        return
+            PositionResponse(
+                positionId,
+                _idToItem[_idToPosition[positionId].itemId],
+                _idToPosition[positionId].owner,
+                _idToPosition[positionId].amount,
+                _idToPosition[positionId].price,
+                _idToPosition[positionId].marketFee,
+                _idToPosition[positionId].state,
+                auctionData,
+                raffleData,
+                loanData
+            );
+    }
+
+    /**
+     * Returns market item positions available (not on sale, auction, raffle or loan).
+     */
+    function fetchAllAvailablePositions()
+        external
+        view
+        returns (PositionResponse[] memory)
+    {
+        return _fetchPositionsByState(PositionState.Available);
+    }
+
+    /**
      * Returns item positions from caller.
      */
     function fetchMyPositions()
@@ -391,40 +421,6 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         }
 
         return positions;
-    }
-
-    /**
-     * Returns item position.
-     */
-    function fetchPosition(uint256 positionId)
-        public
-        view
-        positionExists(positionId)
-        returns (PositionResponse memory)
-    {
-        AuctionData memory auctionData;
-        RaffleDataResponse memory raffleData;
-        if (_idToPosition[positionId].state == PositionState.Auction) {
-            auctionData = _idToAuctionData[positionId];
-        } else if (_idToPosition[positionId].state == PositionState.Raffle) {
-            raffleData.deadline = _idToRaffleData[positionId].deadline;
-            raffleData.totalValue = _idToRaffleData[positionId].totalValue;
-            raffleData.totalAddresses = _idToRaffleData[positionId]
-                .totalAddresses;
-        }
-
-        return
-            PositionResponse(
-                positionId,
-                _idToItem[_idToPosition[positionId].itemId],
-                _idToPosition[positionId].owner,
-                _idToPosition[positionId].amount,
-                _idToPosition[positionId].price,
-                _idToPosition[positionId].marketFee,
-                _idToPosition[positionId].state,
-                auctionData,
-                raffleData
-            );
     }
 
     /////////////////////////// REGULAR SALE ////////////////////////////////////
@@ -531,47 +527,15 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
             ItemSale(seller, msg.sender, msg.value, amount)
         );
         if (amount == _idToPosition[positionId].amount) {
+            // Sale ended
             delete _idToPosition[positionId];
             emit PositionDelete(positionId);
             _idToItem[itemId].positionCount--;
             _onRegularSale.decrement();
         } else {
+            // Partial sale
             _idToPosition[positionId].amount -= amount;
         }
-
-        // Create new position or update exising one for the buyer
-        uint256 buyerPositionId;
-        Position memory buyerPosition = _fetchAvalailablePosition(
-            itemId,
-            msg.sender
-        );
-        if (buyerPosition.itemId != 0) {
-            buyerPositionId = buyerPosition.itemId;
-            _idToPosition[buyerPositionId].amount += amount;
-        } else {
-            _positionIds.increment();
-            buyerPositionId = _positionIds.current();
-            _idToPosition[buyerPositionId] = Position(
-                buyerPositionId,
-                itemId,
-                payable(msg.sender),
-                amount,
-                0,
-                0,
-                PositionState.Available
-            );
-            _idToItem[itemId].positionCount++;
-        }
-
-        emit PositionUpdate(
-            buyerPositionId,
-            _idToPosition[buyerPositionId].itemId,
-            _idToPosition[buyerPositionId].owner,
-            _idToPosition[buyerPositionId].amount,
-            _idToPosition[buyerPositionId].price,
-            _idToPosition[buyerPositionId].marketFee,
-            _idToPosition[buyerPositionId].state
-        );
 
         emit MarketItemSold(
             itemId,
@@ -582,6 +546,8 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
             msg.value,
             amount
         );
+
+        _updatePositionForTokenReceiver(itemId, msg.sender);
     }
 
     /**
@@ -597,46 +563,23 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         );
 
         uint256 itemId = _idToPosition[positionId].itemId;
-        uint256 amount = _idToPosition[positionId].amount;
 
         // Transfer ownership back to seller
         IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
             address(this),
             msg.sender,
             _idToItem[itemId].tokenId,
-            amount,
+            _idToPosition[positionId].amount,
             ""
         );
 
         // Delete item position
         delete _idToPosition[positionId];
         emit PositionDelete(positionId);
-
-        // Create new position or update exising one for seller
-        uint256 sellerPositionId;
-        Position memory sellerPosition = _fetchAvalailablePosition(
-            itemId,
-            msg.sender
-        );
-        if (sellerPosition.itemId != 0) {
-            sellerPositionId = sellerPosition.itemId;
-            _idToPosition[sellerPositionId].amount += amount;
-            _idToItem[itemId].positionCount--;
-        } else {
-            _positionIds.increment();
-            sellerPositionId = _positionIds.current();
-            _idToPosition[sellerPositionId] = Position(
-                sellerPositionId,
-                itemId,
-                payable(msg.sender),
-                amount,
-                0,
-                0,
-                PositionState.Available
-            );
-        }
-
+        _idToItem[itemId].positionCount--;
         _onRegularSale.decrement();
+
+        _updatePositionForTokenReceiver(itemId, msg.sender);
     }
 
     /**
@@ -647,22 +590,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         view
         returns (PositionResponse[] memory)
     {
-        uint256 currentIndex = 0;
-
-        // Initialize array
-        PositionResponse[] memory positions = new PositionResponse[](
-            _onRegularSale.current()
-        );
-
-        // Fill array
-        for (uint256 i = 0; i < _positionIds.current(); i++) {
-            if (_idToPosition[i + 1].state == PositionState.RegularSale) {
-                positions[currentIndex] = fetchPosition(i + 1);
-                currentIndex += 1;
-            }
-        }
-
-        return positions;
+        return _fetchPositionsByState(PositionState.RegularSale);
     }
 
     /////////////////////////// AUCTION ////////////////////////////////////
@@ -677,12 +605,6 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         uint256 numMinutes,
         uint256 minBid
     ) external {
-        require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
-        require(
-            numMinutes <= 44640,
-            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
-        ); // 44,640 min = 1 month
-
         // Create market item
         uint256 itemId = createItem(nftContract, tokenId);
 
@@ -707,8 +629,8 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         );
         require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
         require(
-            numMinutes <= 44640,
-            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
+            numMinutes >= 60 && numMinutes <= 44640,
+            "SqwidMarketplace: Number of minutes must be between 0 and 44,640."
         ); // 44,640 min = 1 month
 
         // Transfer ownership of the token to this contract
@@ -867,7 +789,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         _idToItem[itemId].positionCount--;
         _onAuction.decrement();
 
-        _updatePositionForTokenReceiver(itemId, receiver, amount);
+        _updatePositionForTokenReceiver(itemId, receiver);
     }
 
     /**
@@ -878,22 +800,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         view
         returns (PositionResponse[] memory)
     {
-        uint256 currentIndex = 0;
-
-        // Initialize array
-        PositionResponse[] memory positions = new PositionResponse[](
-            _onAuction.current()
-        );
-
-        // Fill array
-        for (uint256 i = 0; i < _positionIds.current(); i++) {
-            if (_idToPosition[i + 1].state == PositionState.Auction) {
-                positions[currentIndex] = fetchPosition(i + 1);
-                currentIndex += 1;
-            }
-        }
-
-        return positions;
+        return _fetchPositionsByState(PositionState.Auction);
     }
 
     /////////////////////////// RAFFLE ////////////////////////////////////
@@ -907,12 +814,6 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         uint256 amount,
         uint256 numMinutes
     ) external {
-        require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
-        require(
-            numMinutes <= 44640,
-            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
-        ); // 44,640 min = 1 month
-
         // Create market item
         uint256 itemId = createItem(nftContract, tokenId);
 
@@ -936,8 +837,8 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         );
         require(amount > 0, "SqwidMarketplace: Amount must be greater than 0.");
         require(
-            numMinutes <= 44640,
-            "SqwidMarketplace: Number of minutes cannot be greater than 44,640."
+            numMinutes >= 60 && numMinutes <= 44640,
+            "SqwidMarketplace: Number of minutes must be between 0 and 44,640."
         ); // 44,640 min = 1 month
 
         // Transfer ownership of the token to this contract
@@ -1094,7 +995,7 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         _idToItem[itemId].positionCount--;
         _onRaffle.decrement();
 
-        _updatePositionForTokenReceiver(itemId, receiver, amount);
+        _updatePositionForTokenReceiver(itemId, receiver);
     }
 
     /**
@@ -1105,22 +1006,262 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
         view
         returns (PositionResponse[] memory)
     {
-        uint256 currentIndex = 0;
+        return _fetchPositionsByState(PositionState.Raffle);
+    }
 
-        // Initialize array
-        PositionResponse[] memory positions = new PositionResponse[](
-            _onRaffle.current()
+    /////////////////////////// LOAN ////////////////////////////////////
+
+    /**
+     * Creates a loan for a new item.
+     */
+    function createNewNftLoan(
+        address nftContract,
+        uint256 tokenId,
+        uint256 loanAmount,
+        uint256 feeAmount,
+        uint256 tokenAmount,
+        uint256 numMinutes
+    ) external {
+        // Create market item
+        uint256 itemId = createItem(nftContract, tokenId);
+
+        // Create raffle
+        createItemLoan(itemId, loanAmount, feeAmount, tokenAmount, numMinutes);
+    }
+
+    /**
+     * Creates a loan from an existing market item.
+     */
+    function createItemLoan(
+        uint256 itemId,
+        uint256 loanAmount,
+        uint256 feeAmount,
+        uint256 tokenAmount,
+        uint256 numMinutes
+    ) public itemExists(itemId) {
+        address nftContract = _idToItem[itemId].nftContract;
+        uint256 tokenId = _idToItem[itemId].tokenId;
+        require(
+            tokenAmount <= IERC1155(nftContract).balanceOf(msg.sender, tokenId),
+            "SqwidMarketplace: Available NFT balance is not enough."
+        );
+        require(
+            loanAmount > 0,
+            "SqwidMarketplace: Loan amount must be greater than 0."
+        );
+        require(
+            feeAmount >= 0,
+            "SqwidMarketplace: Fee amount cannot be lower than 0."
+        );
+        require(
+            tokenAmount > 0,
+            "SqwidMarketplace: Token amount must be greater than 0."
+        );
+        require(
+            numMinutes >= 1 && numMinutes <= 2628000,
+            "SqwidMarketplace: Number of minutes must be between 1,440 and 2,628,000."
+        ); // 1,440 min = 1 day - 2,628,000 min = 5 years
+        // TODO change min numMinutes to 1440
+
+        // Transfer ownership of the token to this contract
+        IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId,
+            tokenAmount,
+            ""
         );
 
-        // Fill array
-        for (uint256 i = 0; i < _positionIds.current(); i++) {
-            if (_idToPosition[i + 1].state == PositionState.Raffle) {
-                positions[currentIndex] = fetchPosition(i + 1);
-                currentIndex += 1;
-            }
+        // Map new Position
+        _positionIds.increment();
+        uint256 positionId = _positionIds.current();
+        _idToPosition[positionId] = Position(
+            positionId,
+            itemId,
+            payable(msg.sender),
+            tokenAmount,
+            0,
+            _marketFee,
+            PositionState.Loan
+        );
+
+        _idToItem[itemId].positionCount++;
+
+        // Create LoanData
+        _idToLoanData[positionId].loanAmount = loanAmount;
+        _idToLoanData[positionId].feeAmount = feeAmount;
+        _idToLoanData[positionId].numMinutes = numMinutes;
+
+        _onLoan.increment();
+
+        emit PositionUpdate(
+            positionId,
+            itemId,
+            msg.sender,
+            tokenAmount,
+            0,
+            _marketFee,
+            PositionState.Loan
+        );
+    }
+
+    /**
+     * Lender funds a loan proposal.
+     */
+    function fundLoan(uint256 positionId)
+        public
+        payable
+        positionInState(positionId, PositionState.Loan)
+    {
+        require(
+            _idToLoanData[positionId].lender == address(0),
+            "SqwidMarketplace: This loan has already been funded."
+        );
+        require(
+            msg.value == _idToLoanData[positionId].loanAmount,
+            "SqwidMarketplace: Value sent must be equal to loan amount."
+        );
+
+        // Update LoanData
+        _idToLoanData[positionId].lender = msg.sender;
+        _idToLoanData[positionId].deadline =
+            block.timestamp +
+            _idToLoanData[positionId].numMinutes *
+            1 minutes;
+
+        // Transfer funds to borrower
+        payable(_idToPosition[positionId].owner).transfer(msg.value);
+    }
+
+    /**
+     * Borrower repays loan.
+     */
+    function repayLoan(uint256 positionId)
+        public
+        payable
+        positionInState(positionId, PositionState.Loan)
+        nonReentrant
+    {
+        require(
+            _idToLoanData[positionId].lender != address(0),
+            "SqwidMarketplace: This loan has not been funded."
+        );
+        require(
+            msg.value >=
+                _idToLoanData[positionId].loanAmount +
+                    _idToLoanData[positionId].feeAmount,
+            "SqwidMarketplace: Value sent is less than loan amount plus fee."
+        );
+
+        // Transfer funds to lender
+        // TODO
+        bool successTx = payable(_idToLoanData[positionId].lender).send(
+            msg.value
+        );
+        if (!successTx) {
+            // TODO make amount claimable
         }
 
-        return positions;
+        uint256 itemId = _idToPosition[positionId].itemId;
+        uint256 amount = _idToPosition[positionId].amount;
+        address borrower = _idToPosition[positionId].owner;
+
+        // Transfer tokens back to borrower
+        IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+            address(this),
+            borrower,
+            _idToItem[itemId].tokenId,
+            amount,
+            ""
+        );
+
+        // Delete position and loan data
+        delete _idToPosition[positionId];
+        emit PositionDelete(positionId);
+        _idToItem[itemId].positionCount--;
+        _onLoan.decrement();
+
+        _updatePositionForTokenReceiver(itemId, borrower);
+    }
+
+    /**
+     * Funder liquidates expired loan.
+     */
+    function liquidateLoan(uint256 positionId)
+        public
+        positionInState(positionId, PositionState.Loan)
+    {
+        require(
+            msg.sender == _idToLoanData[positionId].lender,
+            "SqwidMarketplace: Only lender can liquidate the loan."
+        );
+        require(
+            _idToLoanData[positionId].deadline < block.timestamp,
+            "SqwidMarketplace: The repayment deadline has not been reached yet."
+        );
+
+        uint256 itemId = _idToPosition[positionId].itemId;
+
+        // Transfer tokens to lender
+        IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+            address(this),
+            msg.sender,
+            _idToItem[itemId].tokenId,
+            _idToPosition[positionId].amount,
+            ""
+        );
+
+        // Delete position and loan data
+        delete _idToPosition[positionId];
+        emit PositionDelete(positionId);
+        _idToItem[itemId].positionCount--;
+        _onLoan.decrement();
+
+        _updatePositionForTokenReceiver(itemId, msg.sender);
+    }
+
+    /**
+     * Unlist loan proposal sale.
+     */
+    function unlistLoanProposal(uint256 positionId)
+        external
+        positionInState(positionId, PositionState.Loan)
+        nonReentrant
+    {
+        require(
+            msg.sender == _idToPosition[positionId].owner,
+            "SqwidMarketplace: Only borrower can unlist loan."
+        );
+        require(
+            _idToLoanData[positionId].lender == address(0),
+            "SqwidMarketplace: Cannot unlist loan already funded."
+        );
+
+        uint256 itemId = _idToPosition[positionId].itemId;
+
+        // Transfer tokens back to borrower
+        IERC1155(_idToItem[itemId].nftContract).safeTransferFrom(
+            address(this),
+            msg.sender,
+            _idToItem[itemId].tokenId,
+            _idToPosition[positionId].amount,
+            ""
+        );
+
+        // Delete position and loan data
+        delete _idToPosition[positionId];
+        emit PositionDelete(positionId);
+        _idToItem[itemId].positionCount--;
+        _onLoan.decrement();
+
+        _updatePositionForTokenReceiver(itemId, msg.sender);
+    }
+
+    /**
+     * Returns market item positions on loan.
+     */
+    function fetchAllLoans() external view returns (PositionResponse[] memory) {
+        return _fetchPositionsByState(PositionState.Loan);
     }
 
     /////////////////////////// UTILS ////////////////////////////////////
@@ -1150,10 +1291,10 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
 
         // Transfer royalties to rightholder if amount is not 0
         if (royaltiesAmount > 0) {
-            (bool success, ) = royaltiesReceiver.call{value: royaltiesAmount}(
+            (bool successTx, ) = royaltiesReceiver.call{value: royaltiesAmount}(
                 ""
             );
-            if (!success) {
+            if (!successTx) {
                 // TODO make amount claimable
             }
         }
@@ -1299,21 +1440,23 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
     }
 
     /**
-     * Creates new position or update exising one for receiver of tokens.
+     * Creates new position or updates amount in exising one for receiver of tokens.
      */
-    function _updatePositionForTokenReceiver(
-        uint256 itemId,
-        address receiver,
-        uint256 amount
-    ) private {
+    function _updatePositionForTokenReceiver(uint256 itemId, address receiver)
+        private
+    {
         uint256 receiverPositionId;
+        uint256 amount = IERC1155(_idToItem[itemId].nftContract).balanceOf(
+            receiver,
+            _idToItem[itemId].tokenId
+        );
         Position memory receiverPosition = _fetchAvalailablePosition(
             itemId,
             receiver
         );
         if (receiverPosition.itemId != 0) {
             receiverPositionId = receiverPosition.itemId;
-            _idToPosition[receiverPositionId].amount += amount;
+            _idToPosition[receiverPositionId].amount = amount;
         } else {
             _positionIds.increment();
             receiverPositionId = _positionIds.current();
@@ -1338,5 +1481,49 @@ contract SqwidMarketplace is ERC1155Holder, Ownable, ReentrancyGuard {
             _idToPosition[receiverPositionId].marketFee,
             _idToPosition[receiverPositionId].state
         );
+    }
+
+    /**
+     * Returns market item positions for a given state.
+     */
+    function _fetchPositionsByState(PositionState state)
+        private
+        view
+        returns (PositionResponse[] memory)
+    {
+        uint256 currentIndex = 0;
+        uint256 totalPositionCount = _positionIds.current();
+        uint256 stateCount;
+        if (state == PositionState.Available) {
+            stateCount =
+                totalPositionCount -
+                _onRegularSale.current() -
+                _onAuction.current() -
+                _onRaffle.current() -
+                _onLoan.current();
+        } else if (state == PositionState.RegularSale) {
+            stateCount = _onRegularSale.current();
+        } else if (state == PositionState.Auction) {
+            stateCount = _onAuction.current();
+        } else if (state == PositionState.Raffle) {
+            stateCount = _onRaffle.current();
+        } else if (state == PositionState.Loan) {
+            stateCount = _onLoan.current();
+        }
+
+        // Initialize array
+        PositionResponse[] memory positions = new PositionResponse[](
+            stateCount
+        );
+
+        // Fill array
+        for (uint256 i = 0; i < _positionIds.current(); i++) {
+            if (_idToPosition[i + 1].state == state) {
+                positions[currentIndex] = fetchPosition(i + 1);
+                currentIndex += 1;
+            }
+        }
+
+        return positions;
     }
 }

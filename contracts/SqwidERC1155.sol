@@ -20,7 +20,6 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
 
     Counters.Counter private _tokenIds;
     address private _marketplaceAddress;
-    address private _loanAddress;
 
     mapping(uint256 => mapping(address => uint256)) private _balances;
     mapping(uint256 => address[]) private _owners;
@@ -29,9 +28,15 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
     mapping(bytes4 => bool) private _supportedInterfaces;
     mapping(uint256 => bool) private _mutableMetadataMapping;
 
-    constructor(address marketplaceAddress, address loanAddress) {
+    constructor(address marketplaceAddress) {
         _marketplaceAddress = marketplaceAddress;
-        _loanAddress = loanAddress;
+    }
+
+    /**
+     * Returns Sqwid marketplace address.
+     */
+    function getMarketplaceAddress() external view returns (address) {
+        return _marketplaceAddress;
     }
 
     /**
@@ -42,13 +47,6 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
         onlyOwner
     {
         _marketplaceAddress = marketplaceAddress;
-    }
-
-    /**
-     * Sets new loan contract address.
-     */
-    function setLoanAddress(address loanAddress) public onlyOwner {
-        _loanAddress = loanAddress;
     }
 
     /**
@@ -92,9 +90,8 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
             ""
         );
 
-        setTokenUri(tokenId, tokenURI);
+        _uris[tokenId] = tokenURI;
         setApprovalForAll(_marketplaceAddress, true);
-        setApprovalForAll(_loanAddress, true);
         if (royaltyValue > 0) {
             _setTokenRoyalty(tokenId, royaltyRecipient, royaltyValue);
         }
@@ -201,11 +198,12 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
 
     /**
      * Sets URI for a specific token.
+     * Only allowed if sender is owner of total supply and NFT is mutable.
      */
     function setTokenUri(uint256 tokenId, string memory uriValue) public {
         require(
             balanceOf(msg.sender, tokenId) == getTokenSupply(tokenId),
-            "ERC1155: Only the owner of the total balance can set token URI."
+            "SquidERC1155: Only the owner of the total supply can set token URI."
         );
         require(
             _mutableMetadataMapping[tokenId],

@@ -39,10 +39,7 @@ describe("************ NFT ******************", () => {
             // Deploy SqwidERC1155 contract
             console.log("\tdeploying NFT contract...");
             const NFT = await reef.getContractFactory("SqwidERC1155", contractOwner);
-            nft = await NFT.deploy(
-                "0x0000000000000000000000000000000000000000",
-                "0x0000000000000000000000000000000000000000"
-            );
+            nft = await NFT.deploy("0x0000000000000000000000000000000000000000");
             await nft.deployed();
             nftContractAddress = nft.address;
         } else {
@@ -156,6 +153,16 @@ describe("************ NFT ******************", () => {
         await throwsException(
             nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
             "SqwidERC1155: Only token owner can set tokenURI."
+        );
+    });
+
+    // TODO
+    it.skip("Should not change tokenURI if sender is not owner of total supply", async () => {
+        // Change tokenURI
+        console.log("\tcontract owner changing tokenURI...");
+        await throwsException(
+            nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
+            "SquidERC1155: Only the owner of the total supply can set token URI."
         );
     });
 

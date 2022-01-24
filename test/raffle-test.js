@@ -1,7 +1,7 @@
 const { expect, assert } = require("chai");
 const ReefAbi = require("./ReefToken.json");
 
-describe.only("************ Raffles ******************", () => {
+describe("************ Raffles ******************", () => {
     let market,
         nft,
         owner,
@@ -91,10 +91,7 @@ describe.only("************ Raffles ******************", () => {
             console.log("\tdeploying NFT contract...");
             await getBalance(ownerAddress, "owner");
             const NFT = await reef.getContractFactory("SqwidERC1155", owner);
-            nft = await NFT.deploy(
-                marketContractAddress,
-                "0x0000000000000000000000000000000000000000"
-            );
+            nft = await NFT.deploy(marketContractAddress);
             await nft.deployed();
             nftContractAddress = nft.address;
             await getBalance(ownerAddress, "owner");

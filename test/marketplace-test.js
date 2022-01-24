@@ -84,10 +84,7 @@ describe("************ Marketplace ******************", () => {
             console.log("\tdeploying NFT contract...");
             await getBalance(ownerAddress, "owner");
             const NFT = await reef.getContractFactory("SqwidERC1155", owner);
-            const loanContractAddress = config.contracts.loan
-                ? config.contracts.loan
-                : "0x0000000000000000000000000000000000000000";
-            nft = await NFT.deploy(marketContractAddress, loanContractAddress);
+            nft = await NFT.deploy(marketContractAddress);
             await nft.deployed();
             nftContractAddress = nft.address;
             await getBalance(ownerAddress, "owner");
