@@ -162,7 +162,7 @@ describe("************ NFT ******************", () => {
         console.log("\tcontract owner changing tokenURI...");
         await throwsException(
             nft.connect(contractOwner).setTokenUri(token1Id, newTokenURI),
-            "SquidERC1155: Only the owner of the total supply can set token URI."
+            "SqwidERC1155: Only the owner of the total supply can set token URI."
         );
     });
 

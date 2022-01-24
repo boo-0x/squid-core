@@ -203,11 +203,11 @@ contract SqwidERC1155 is Context, ERC165, IERC1155, NftRoyalties, Ownable {
     function setTokenUri(uint256 tokenId, string memory uriValue) public {
         require(
             balanceOf(msg.sender, tokenId) == getTokenSupply(tokenId),
-            "SquidERC1155: Only the owner of the total supply can set token URI."
+            "SqwidERC1155: Only the owner of the total supply can set token URI."
         );
         require(
             _mutableMetadataMapping[tokenId],
-            "SquidERC1155: The metadata of this token is immutable."
+            "SqwidERC1155: The metadata of this token is immutable."
         );
 
         _uris[tokenId] = uriValue;
